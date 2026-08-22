@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenBudget Captcha</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 15px; margin: 0; background-color: #f5f5f5; }
+        .captcha-box { background: white; padding: 15px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        img { max-width: 100%; height: auto; border: 1px solid #ddd; margin-top: 10px; cursor: pointer; }
+        .btn { margin-top: 15px; padding: 10px 20px; background: #2481cc; color: white; border: none; border-radius: 5px; width: 100%; font-size: 16px; }
+    </style>
+</head>
+<body>
+
+<div class="captcha-box">
+    <h3>Rasmdagi harflarni ketma-ket bosing</h3>
+    <div id="captcha-container">
+        <p>Captcha yuklanmoqda...</p>
+    </div>
+    <button class="btn" onclick="submitCaptcha()">Tasdiqlash</button>
+</div>
+
+<script>
+    const tg = window.Telegram.WebApp;
+    tg.expand();
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const phone = urlParams.get('phone');
+    let points = [];
+    let captchaUuid = "";
+
+    // 1. Captcha UUID va Rasmlarni olish
+    async function loadCaptcha() {
+        try {
+            let req = await fetch("https://new.openbudget.uz/api/v2/vote/mvc/captchaRequest", { method: "POST" });
+            captchaUuid = await req.text();
+
+            let res = await fetch(`https://new.openbudget.uz/api/v2/vote/mvc/captcha/${captchaUuid}`);
+            let htmlText = await res.text();
+            
+            document.getElementById("captcha-container").innerHTML = htmlText;
+
+            // Rasm B bosilganda kordinatalarni ushlash
+            let imgB = document.getElementById("imageB");
+            if(imgB) {
+                imgB.addEventListener("click", function(e) {
+                    let rect = e.target.getBoundingClientRect();
+                    let x = Math.round(e.clientX - rect.left);
+                    let y = Math.round(e.clientY - rect.top);
+                    points.push({ id: `${x}${y}`, x: x, y: y });
+                    tg.HapticFeedback.impactOccurred("light");
+                });
+            }
+        } catch(err) {
+            alert("Captcha yuklashda xatolik!");
+        }
+    }
+
+    // 2. Captcha natijasini OpenBudget'ga yuborish va Botga uzatish
+    async function submitCaptcha() {
+        if(points.length === 0) {
+            alert("Iltimos, rasmdagi harflarni bosing!");
+            return;
+        }
+
+        let formData = new URLSearchParams();
+        formData.append("phoneNumber", phone);
+        formData.append("points", JSON.stringify(points));
+
+        try {
+            let res = await fetch("https://new.openbudget.uz/api/v2/vote/mvc/captcha", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: formData
+            });
+
+            if(res.ok) {
+                // Muvaffaqiyatli bo'lsa botga ma'lumot qaytarish
+                tg.sendData(JSON.stringify({
+                    status: "success",
+                    session_token: captchaUuid
+                }));
+            } else {
+                alert("Captcha xato kiritildi, qaytadan urining.");
+                points = [];
+                loadCaptcha();
+            }
+        } catch(e) {
+            alert("Ulanishda xatolik!");
+        }
+    }
+
+    loadCaptcha();
+</script>
+</body>
+</html>
