@@ -6,16 +6,16 @@
     <title>OpenBudget Captcha</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        body { font-family: sans-serif; text-align: center; padding: 15px; margin: 0; background-color: #f5f5f5; }
-        .captcha-box { background: white; padding: 15px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-        img { max-width: 100%; height: auto; border: 1px solid #ddd; margin-top: 10px; cursor: pointer; }
-        .btn { margin-top: 15px; padding: 10px 20px; background: #2481cc; color: white; border: none; border-radius: 5px; width: 100%; font-size: 16px; }
+        body { font-family: sans-serif; text-align: center; padding: 15px; margin: 0; background: #f4f6f9; }
+        .card { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        #captcha-container img { max-width: 100%; border-radius: 8px; cursor: pointer; margin-top: 10px; }
+        .btn { margin-top: 15px; width: 100%; padding: 12px; background: #2481cc; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; }
     </style>
 </head>
 <body>
 
-<div class="captcha-box">
-    <h3>Rasmdagi harflarni ketma-ket bosing</h3>
+<div class="card">
+    <h4>Rasmdagi harflarni bosib belgilang</h4>
     <div id="captcha-container">
         <p>Captcha yuklanmoqda...</p>
     </div>
@@ -31,20 +31,27 @@
     let points = [];
     let captchaUuid = "";
 
-    // 1. Captcha UUID va Rasmlarni olish
     async function loadCaptcha() {
         try {
-            let req = await fetch("https://new.openbudget.uz/api/v2/vote/mvc/captchaRequest", { method: "POST" });
-            captchaUuid = await req.text();
+            // 1. Flask serverdan UUID olish
+            let req = await fetch('/api/proxy/captcha-request', { method: 'POST' });
+            let res = await req.json();
 
-            let res = await fetch(`https://new.openbudget.uz/api/v2/vote/mvc/captcha/${captchaUuid}`);
-            let htmlText = await res.text();
+            if (!res.success) {
+                alert("Captcha UUID olishda xatolik!");
+                return;
+            }
+            captchaUuid = res.uuid;
+
+            // 2. Flask serverdan Captcha HTML ni olish
+            let htmlReq = await fetch(`/api/proxy/captcha-html/${captchaUuid}`);
+            let htmlText = await htmlReq.text();
             
             document.getElementById("captcha-container").innerHTML = htmlText;
 
-            // Rasm B bosilganda kordinatalarni ushlash
+            // Rasm B bosilganda koordinatalarni saqlash
             let imgB = document.getElementById("imageB");
-            if(imgB) {
+            if (imgB) {
                 imgB.addEventListener("click", function(e) {
                     let rect = e.target.getBoundingClientRect();
                     let x = Math.round(e.clientX - rect.left);
@@ -54,41 +61,39 @@
                 });
             }
         } catch(err) {
-            alert("Captcha yuklashda xatolik!");
+            alert("Ulanish xatosi: " + err.message);
         }
     }
 
-    // 2. Captcha natijasini OpenBudget'ga yuborish va Botga uzatish
     async function submitCaptcha() {
-        if(points.length === 0) {
+        if (points.length === 0) {
             alert("Iltimos, rasmdagi harflarni bosing!");
             return;
         }
 
-        let formData = new URLSearchParams();
-        formData.append("phoneNumber", phone);
-        formData.append("points", JSON.stringify(points));
-
         try {
-            let res = await fetch("https://new.openbudget.uz/api/v2/vote/mvc/captcha", {
-                method: "POST",
-                headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                body: formData
+            // 3. Koordinatalarni Flask proxy orqali yuborish
+            let response = await fetch('/api/proxy/submit-captcha', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    uuid: captchaUuid,
+                    phone: phone,
+                    points: points
+                })
             });
 
-            if(res.ok) {
-                // Muvaffaqiyatli bo'lsa botga ma'lumot qaytarish
-                tg.sendData(JSON.stringify({
-                    status: "success",
-                    session_token: captchaUuid
-                }));
+            let result = await response.json();
+
+            if (result.success) {
+                tg.sendData(JSON.stringify({ status: "success" }));
             } else {
-                alert("Captcha xato kiritildi, qaytadan urining.");
+                alert(result.message || "Captcha noto'g'ri, qayta urining.");
                 points = [];
                 loadCaptcha();
             }
         } catch(e) {
-            alert("Ulanishda xatolik!");
+            alert("Yuborishda xatolik yuz berdi.");
         }
     }
 
