@@ -2,102 +2,138 @@
 <html lang="uz">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OpenBudget Captcha</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Open Budget Ovoz Berish</title>
+    <!-- Telegram Web App API -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        body { font-family: sans-serif; text-align: center; padding: 15px; margin: 0; background: #f4f6f9; }
-        .card { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-        #captcha-container img { max-width: 100%; border-radius: 8px; cursor: pointer; margin-top: 10px; }
-        .btn { margin-top: 15px; width: 100%; padding: 12px; background: #2481cc; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { background-color: #f3f4f6; color: #111827; padding: 16px; display: flex; justify-content: center; }
+        .container { background: #ffffff; width: 100%; max-w-sm; border-radius: 16px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        h1 { font-size: 18px; text-align: center; margin-bottom: 20px; color: #1f2937; }
+        
+        .form-group { margin-bottom: 20px; }
+        .label-title { display: flex; justify-content: space-between; font-size: 14px; font-weight: 500; margin-bottom: 8px; color: #4b5563; }
+        .label-title span { color: #ef4444; }
+        
+        .phone-input-wrapper { display: flex; border: 1px solid #d1d5db; border-radius: 10px; overflow: hidden; }
+        .phone-prefix { background: #f3f4f6; padding: 12px 16px; font-weight: 500; border-right: 1px solid #d1d5db; color: #4b5563; }
+        .phone-input { flex: 1; border: none; padding: 12px; font-size: 16px; outline: none; }
+        .phone-input:focus { box-shadow: inset 0 0 0 1px #3b82f6; }
+        
+        .img-container { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; min-height: 50px; display: flex; justify-content: center; align-items: center; position: relative; overflow: hidden; }
+        .img-container img { max-width: 100%; display: block; cursor: crosshair; }
+        
+        .clear-btn { color: #2563eb; background: none; border: none; font-size: 14px; cursor: pointer; font-weight: 500; }
+        
+        .point-marker { position: absolute; width: 30px; height: 30px; background: rgba(59, 130, 246, 0.2); border: 2px solid #2563eb; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #1e3a8a; font-weight: bold; font-size: 12px; transform: translate(-50%, -50%); pointer-events: none; }
+        
+        .submit-btn { width: 100%; background: #007791; color: white; border: none; padding: 14px; font-size: 16px; font-weight: 600; border-radius: 10px; cursor: pointer; transition: background 0.2s; }
+        .submit-btn:disabled { background: #9ca3af; cursor: not-allowed; }
     </style>
 </head>
 <body>
 
-<div class="card">
-    <h4>Rasmdagi harflarni bosib belgilang</h4>
-    <div id="captcha-container">
-        <p>Captcha yuklanmoqda...</p>
+    <div class="container">
+        <h1>Смс код орқали овоз бериш</h1>
+
+        <div class="form-group">
+            <div class="label-title"><span>*</span> Телефон</div>
+            <div class="phone-input-wrapper">
+                <div class="phone-prefix">+998</div>
+                <input type="tel" id="phone" class="phone-input" placeholder="90 123 45 67" maxlength="12">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <div class="label-title">Расм A</div>
+            <div class="img-container">
+                <!-- Base64 rasm A shu yerga tushadi -->
+                <img id="imageA" src="" alt="Rasm A" style="display: none;">
+                <span id="placeholderA" style="color: #9ca3af; font-size: 14px;">A rasm yuklanmoqda...</span>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <div class="label-title">
+                <div>Расм Б</div>
+                <button class="clear-btn" onclick="clearPoints()">Тозалаш</button>
+            </div>
+            <div class="img-container" id="imageContainerB" style="min-height: 200px;">
+                <!-- Base64 rasm B shu yerga tushadi -->
+                <img id="imageB" src="https://via.placeholder.com/345x200?text=B+rasm+bu+yerda+chiqadi" alt="Rasm B" onclick="addPoint(event)">
+            </div>
+        </div>
+
+        <button class="submit-btn" id="submitBtn" onclick="submitData()" disabled>Давом этиш</button>
     </div>
-    <button class="btn" onclick="submitCaptcha()">Tasdiqlash</button>
-</div>
 
-<script>
-    const tg = window.Telegram.WebApp;
-    tg.expand();
+    <script>
+        // Telegram Web App init
+        const tg = window.Telegram.WebApp;
+        tg.expand();
 
-    const urlParams = new URLSearchParams(window.location.search);
-    const phone = urlParams.get('phone');
-    let points = [];
-    let captchaUuid = "";
+        let points = [];
+        const maxPoints = 2; // Odatda 2 ta nuqta tanlanadi
 
-    async function loadCaptcha() {
-        try {
-            // 1. Flask serverdan UUID olish
-            let req = await fetch('/api/proxy/captcha-request', { method: 'POST' });
-            let res = await req.json();
+        function addPoint(event) {
+            if (points.length >= maxPoints) return;
 
-            if (!res.success) {
-                alert("Captcha UUID olishda xatolik!");
-                return;
-            }
-            captchaUuid = res.uuid;
-
-            // 2. Flask serverdan Captcha HTML ni olish
-            let htmlReq = await fetch(`/api/proxy/captcha-html/${captchaUuid}`);
-            let htmlText = await htmlReq.text();
+            const container = document.getElementById('imageContainerB');
+            const img = document.getElementById('imageB');
             
-            document.getElementById("captcha-container").innerHTML = htmlText;
+            // Rasmning ekrandagi joylashuvini olamiz
+            const rect = img.getBoundingClientRect();
+            
+            // Aniq koordinatalarni hisoblaymiz
+            const x = Math.round(event.clientX - rect.left);
+            const y = Math.round(event.clientY - rect.top);
+            
+            points.push({ x, y });
+            
+            // Ekranda vizual belgini yaratamiz
+            const marker = document.createElement('div');
+            marker.className = 'point-marker';
+            marker.style.left = `${x}px`;
+            marker.style.top = `${y}px`;
+            marker.innerText = points.length;
+            container.appendChild(marker);
 
-            // Rasm B bosilganda koordinatalarni saqlash
-            let imgB = document.getElementById("imageB");
-            if (imgB) {
-                imgB.addEventListener("click", function(e) {
-                    let rect = e.target.getBoundingClientRect();
-                    let x = Math.round(e.clientX - rect.left);
-                    let y = Math.round(e.clientY - rect.top);
-                    points.push({ id: `${x}${y}`, x: x, y: y });
-                    tg.HapticFeedback.impactOccurred("light");
-                });
-            }
-        } catch(err) {
-            alert("Ulanish xatosi: " + err.message);
-        }
-    }
-
-    async function submitCaptcha() {
-        if (points.length === 0) {
-            alert("Iltimos, rasmdagi harflarni bosing!");
-            return;
+            checkFormValidity();
         }
 
-        try {
-            // 3. Koordinatalarni Flask proxy orqali yuborish
-            let response = await fetch('/api/proxy/submit-captcha', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    uuid: captchaUuid,
-                    phone: phone,
-                    points: points
-                })
+        function clearPoints() {
+            points = [];
+            const container = document.getElementById('imageContainerB');
+            // Barcha markerlarni o'chiramiz
+            const markers = container.querySelectorAll('.point-marker');
+            markers.forEach(marker => marker.remove());
+            checkFormValidity();
+        }
+
+        function checkFormValidity() {
+            const phone = document.getElementById('phone').value.replace(/\D/g, '');
+            const btn = document.getElementById('submitBtn');
+            // Telefon raqami 9 xona bo'lishi va nuqtalar bosilgan bo'lishi kerak
+            btn.disabled = !(points.length > 0 && phone.length === 9);
+        }
+
+        // Telefon raqam kiritilganda formani tekshirish
+        document.getElementById('phone').addEventListener('input', checkFormValidity);
+
+        function submitData() {
+            const phone = document.getElementById('phone').value.replace(/\D/g, '');
+            // Koordinatalarni "12,34;56,78" formatiga keltiramiz
+            const pointsFormatted = points.map(p => `${p.x},${p.y}`).join(';');
+            
+            const payload = JSON.stringify({
+                phone: `998${phone}`,
+                points: pointsFormatted
             });
 
-            let result = await response.json();
-
-            if (result.success) {
-                tg.sendData(JSON.stringify({ status: "success" }));
-            } else {
-                alert(result.message || "Captcha noto'g'ri, qayta urining.");
-                points = [];
-                loadCaptcha();
-            }
-        } catch(e) {
-            alert("Yuborishda xatolik yuz berdi.");
+            // Telegram botga yuborish
+            tg.sendData(payload);
         }
-    }
-
-    loadCaptcha();
-</script>
+    </script>
 </body>
 </html>
